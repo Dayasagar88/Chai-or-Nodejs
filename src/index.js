@@ -1,19 +1,18 @@
 import express from "express";
 import connectDB from "./db/connectDB.js";
-const app = express();
 import dotenv from "dotenv"
+import { app } from "./app.js";
 
 
 dotenv.config();
 
 
-const port = process.env.PORT || 3000;
 
-app.listen(port, async () => { 
-    try {
-        await connectDB();
-        console.log(`Server listen at ${port}`);
-    } catch (error) {
-        console.log("port error : ",error);
-    }  
-})                           
+connectDB().then(() => {
+    app.listen(process.env.PORT || 3000, () => {
+        console.log(`Server is running on port ${process.env.PORT}`)
+    })
+}).catch((err) => {
+    console.log(`DB connection error`, err)
+})
+ 
