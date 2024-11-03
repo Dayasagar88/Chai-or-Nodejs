@@ -111,15 +111,18 @@ export const loginUser = asyncHandler(async (req, res) => {
     if (!email && !username) {
       throw new ApiError(400, "Username or email is required");
     }
+    if (!password) {
+      throw new ApiError(400, "Please enter your password");
+    }
 
     if (!user) {
-      return new ApiError(404, "User does not exist");
+      throw new ApiError(404, "User does not exist");
     }
 
     const isPassworMatched = await user.isPasswordCorrect(password);
 
     if (!isPassworMatched) {
-      return new ApiError(401, "Invalid credentials!");
+      throw new ApiError(401, "Invalid credentials!");
     }
 
     const { accessToken, refreshToken } = await generateAccessAndRefreshToken(
@@ -134,7 +137,6 @@ export const loginUser = asyncHandler(async (req, res) => {
       httpOnly: true,
       secure: true,
     };
-
     return res
       .status(200)
       .cookie("accessToken", accessToken, options)
@@ -228,4 +230,7 @@ export const refreshAccessToken = asyncHandler(async (req, res) => {
   } catch (error) {
     throw new ApiError(401, error?.message || "Invalid refresh token...")
   }
-})
+});
+
+
+
