@@ -3,7 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
-import jwt from "jsonwebtoken"
+import jwt from "jsonwebtoken";
 
 const generateAccessAndRefreshToken = async (userId) => {
   try {
@@ -106,7 +106,7 @@ export const loginUser = asyncHandler(async (req, res) => {
     const { email, username, password } = req.body;
     const user = await User.findOne({
       $or: [{ email }, { username }],
-    })
+    });
 
     if (!email && !username) {
       throw new ApiError(400, "Username or email is required");
@@ -182,55 +182,153 @@ export const logoutUser = asyncHandler(async (req, res) => {
       secure: true,
     };
 
-    return res.status(200).clearCookie("accessToken", options).clearCookie("refreshToken", options).json(
-      new ApiResponse(200, {}, "Logged out succesfully!")
-    )
-
-
+    return res
+      .status(200)
+      .clearCookie("accessToken", options)
+      .clearCookie("refreshToken", options)
+      .json(new ApiResponse(200, {}, "Logged out succesfully!"));
   } catch (error) {
-    return ApiError(500, "Somthing went wrong while logging out")
+    return ApiError(500, "Somthing went wrong while logging out");
   }
 });
 
 export const refreshAccessToken = asyncHandler(async (req, res) => {
-  const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken;
+  const incomingRefreshToken =
+    req.cookies.refreshToken || req.body.refreshToken;
 
-  if(!incomingRefreshToken){
+  if (!incomingRefreshToken) {
     throw new ApiError(401, "Unauthorized request");
   }
 
   try {
-    const decodedToken = jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET);
+    const decodedToken = jwt.verify(
+      incomingRefreshToken,
+      process.env.REFRESH_TOKEN_SECRET
+    );
 
     const user = await User.findById(decodedToken?._id);
 
-
-    if(!user){
+    if (!user) {
       throw new ApiError(401, "Invalid refresh token");
     }
 
-    if(incomingRefreshToken !== user?.refreshToken){
+    if (incomingRefreshToken !== user?.refreshToken) {
       throw new ApiError(401, "Refresh token expired or invalid");
     }
 
     const options = {
-      httpOnly : true,
-      secure : true
-    }
+      httpOnly: true,
+      secure: true,
+    };
 
-    const {accessToken, newRefreshToken} = await generateAccessAndRefreshToken(user?._id);
+    const { accessToken, newRefreshToken } =
+      await generateAccessAndRefreshToken(user?._id);
 
     return res
-    .status(200)
-    .cookie("accessToken", accessToken , options)
-    .cookie("refreshToken", newRefreshToken, options)
-    .json(
-      new ApiResponse(200, {accessToken, refreshToken : newRefreshToken}, "Access token refreshed!")
-    )
+      .status(200)
+      .cookie("accessToken", accessToken, options)
+      .cookie("refreshToken", newRefreshToken, options)
+      .json(
+        new ApiResponse(
+          200,
+          { accessToken, refreshToken: newRefreshToken },
+          "Access token refreshed!"
+        )
+      );
   } catch (error) {
-    throw new ApiError(401, error?.message || "Invalid refresh token...")
+    throw new ApiError(401, error?.message || "Invalid refresh token...");
   }
 });
 
+export const changeCurrentPassword = asyncHandler(async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
 
+    const user = await User.findById(req.user._id);
+    const isPasswordCorrect = await user.isPasswordCorrect(oldPassword);
 
+    if (!isPasswordCorrect) {
+      throw new ApiError(400, "Invalid old password!");
+    }
+
+    user.password = newPassword;
+    user.save({ validateBeforeSave: false });
+    return res
+      .status(200)
+      .json(new ApiResponse(200, {}, "Password changed successfully!"));
+  } catch (error) {
+    throw new ApiError(500, error.message || "Internal server error");
+  }
+});
+
+export const getCurrentUser = asyncHandler(async (req, res) => {
+  return res
+    .status(200)
+    .json(new ApiResponse(200, req.user, "User fetched successfully!"));
+});
+
+export const updateAccountDetails = asyncHandler(async (req, res) => {
+  try {
+    const { fullname, email } = req.body;
+
+    const user = await User.findById(req.user._id).select(
+      "-password -refreshToken"
+    );
+
+    if (user?.fullname === fullname && user?.email === email) {
+      return;
+    }
+
+    user.fullname = fullname;
+    user.email = email;
+    await user.save({ validateBeforeSave: true });
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, user, "Account details updated successfully"));
+  } catch (error) {}
+});
+
+export const updateUserImages = asyncHandler(async (req, res) => {
+  try {
+    // Retrieve the avatar and cover image paths separately
+    const avatarLocalPath = req.files?.avatar?.[0]?.path;
+    const coverImageLocalPath = req.files?.coverImage?.[0]?.path;
+
+    if (!avatarLocalPath) {
+      throw new ApiError(401, "Avatar image is required!");
+    }
+
+    // Upload avatar image to cloud
+    const avatarImageCloudResponse = await uploadOnCloudinary(avatarLocalPath);
+    if (!avatarImageCloudResponse) {
+      throw new ApiError(400, "Error while uploading avatar image!");
+    }
+
+    // If cover image is provided, upload it to the cloud
+    let coverImageCloudResponse;
+    if (coverImageLocalPath) {
+      coverImageCloudResponse = await uploadOnCloudinary(coverImageLocalPath);
+    }
+
+    // Update user with avatar and cover image URLs
+    const user = await User.findByIdAndUpdate(
+      req.user?._id,
+      {
+        $set: {
+          avatar: avatarImageCloudResponse.secure_url,
+          coverImage: coverImageCloudResponse?.secure_url || null,
+        },
+      },
+      {
+        new: true,
+      }
+    ).select("-password -refreshToken");
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, user, "Profile updated successfully"));
+  } catch (error) {
+    throw new ApiError(500, error.message || "Internal server error");
+  }
+});
